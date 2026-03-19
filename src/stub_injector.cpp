@@ -1,7 +1,6 @@
 #include "stub_injector.h"
 #include <cstring>
 #include <algorithm>
-#include <limits>
 
 StubInjector::StubInjector(const ElfParser& parser, Architecture arch)
     : parser(parser), stub_gen(arch) {
@@ -14,14 +13,16 @@ StubInjector::~StubInjector() {}
 
 bool StubInjector::inject_restore_stub(
     std::vector<uint8_t>& file_data,
-    const std::vector<uint64_t>& insert_offsets,
+    const std::vector<uint64_t>& insert_vaddrs,
     const std::vector<uint64_t>& insert_sizes,
+    const std::vector<uint64_t>& bytes_to_move,
     const StubInjectionOptions& options) {
     
     // 生成 stub
     StubInfo stub_info = stub_gen.generate_restore_stub(
-        insert_offsets,
+        insert_vaddrs,
         insert_sizes,
+        bytes_to_move,
         parser.get_entry()
     );
     
@@ -69,22 +70,6 @@ bool StubInjector::inject_restore_stub(
         if (!options.has_fixed_stub_base || options.stub_base_vaddr == 0) {
             log_error("stub-update-entry requires fixed executable stub placement");
             return false;
-        }
-
-        if (parser.get_machine() == EM_X86_64 && stub_info.code.size() >= 5) {
-            const int64_t rel64 =
-                static_cast<int64_t>(stub_info.original_entry) -
-                static_cast<int64_t>(options.stub_base_vaddr + 5);
-            if (rel64 < std::numeric_limits<int32_t>::min() ||
-                rel64 > std::numeric_limits<int32_t>::max()) {
-                log_error("x86_64 entry-jump target is out of rel32 range");
-                return false;
-            }
-            uint8_t* stub_ptr = file_data.data() + injection_point;
-            const int32_t rel32 = static_cast<int32_t>(rel64);
-            stub_ptr[0] = 0xE9;  // jmp rel32
-            std::memcpy(stub_ptr + 1, &rel32, sizeof(rel32));
-            // 剩余字节保留，不影响执行；入口会在 5 字节后直接跳转离开。
         }
 
         new_entry_point = options.stub_base_vaddr;

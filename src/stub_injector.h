@@ -28,8 +28,9 @@ public:
     // 注入 stub 到文件中
     bool inject_restore_stub(
         std::vector<uint8_t>& file_data,
-        const std::vector<uint64_t>& insert_offsets,
+        const std::vector<uint64_t>& insert_vaddrs,
         const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& bytes_to_move,
         const StubInjectionOptions& options
     );
     

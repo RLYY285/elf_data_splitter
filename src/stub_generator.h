@@ -33,8 +33,9 @@ public:
     
     // 生成恢复 stub（用于恢复插入的数据）
     StubInfo generate_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,  // 插入位置
+        const std::vector<uint64_t>& insert_vaddrs,   // 插入块的虚拟地址
         const std::vector<uint64_t>& insert_sizes,    // 每次插入大小
+        const std::vector<uint64_t>& bytes_to_move,   // 每个插入点之后需要移动的字节数
         uint64_t original_entry
     );
     
@@ -62,24 +63,29 @@ private:
     
     // 内部生成函数
     std::vector<uint8_t> generate_x86_64_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
+        const std::vector<uint64_t>& insert_vaddrs,
+        const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& bytes_to_move
     );
     
     std::vector<uint8_t> generate_arm64_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
+        const std::vector<uint64_t>& insert_vaddrs,
+        const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& bytes_to_move
     );
     
     std::vector<uint8_t> generate_arm_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
+        const std::vector<uint64_t>& insert_vaddrs,
+        const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& bytes_to_move
     );
     
     // 生成元数据
     std::vector<uint8_t> generate_metadata(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
+        const std::vector<uint64_t>& insert_vaddrs,
+        const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& bytes_to_move,
+        uint64_t original_entry
     );
 };
 

@@ -93,8 +93,11 @@ private:
     std::string last_error;
     
     // 记录插入位置和大小
-    std::vector<uint64_t> insert_offsets;
+    std::vector<uint64_t> insert_offsets;    // 文件偏移（原始坐标，供静态修复使用）
     std::vector<uint64_t> insert_sizes;
+    std::vector<uint64_t> insert_vaddrs;     // 插入块的虚拟地址（扩展后坐标，供运行时 stub 使用）
+    std::vector<uint64_t> insert_bytes_to_move; // 每个插入块之后需要移动的字节数
+    std::vector<bool> insert_in_exec_seg;    // 是否位于可执行段
     std::vector<uint64_t> segment_size_increase;
     std::vector<StubPlacement> stub_placements;
     

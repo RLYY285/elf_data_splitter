@@ -111,6 +111,9 @@ bool ElfSplitter::process() {
     last_error.clear();
     insert_offsets.clear();
     insert_sizes.clear();
+    insert_vaddrs.clear();
+    insert_bytes_to_move.clear();
+    insert_in_exec_seg.clear();
     stub_placements.clear();
 
     if (options.arch == Architecture::UNKNOWN) {
@@ -270,9 +273,17 @@ bool ElfSplitter::process_pt_load_segments() {
         }
 
         segment_size_increase[idx] = result.inserted_bytes;
+        uint64_t cumulative = 0;
         for (size_t i = 0; i < result.insertion_points.size(); ++i) {
+            // 文件偏移（原始坐标，用于静态修复）
             insert_offsets.push_back(seg.p_offset + result.insertion_points[i]);
             insert_sizes.push_back(result.insertion_sizes[i]);
+            // 扩展后段内偏移（用于运行时 stub）
+            const uint64_t junk_start = result.insertion_points[i] + cumulative;
+            insert_vaddrs.push_back(seg.p_vaddr + junk_start);
+            insert_bytes_to_move.push_back(result.new_size - junk_start - result.insertion_sizes[i]);
+            insert_in_exec_seg.push_back(seg.is_executable());
+            cumulative += result.insertion_sizes[i];
         }
         
         if (result.inserted_bytes > 0) {
@@ -520,8 +531,21 @@ bool ElfSplitter::inject_stub() {
                 stub_options.stub_region_size = best->capacity;
                 stub_options.has_fixed_stub_base = true;
             }
-            success = stub_injector->inject_restore_stub(
-                processed_data, insert_offsets, insert_sizes, stub_options);
+            // 只将非可执行段的插入块传给运行时 stub（可执行段已由静态修复处理）
+            {
+                std::vector<uint64_t> stub_vaddrs;
+                std::vector<uint64_t> stub_sizes;
+                std::vector<uint64_t> stub_bytes_to_move;
+                for (size_t i = 0; i < insert_vaddrs.size(); ++i) {
+                    if (!insert_in_exec_seg[i]) {
+                        stub_vaddrs.push_back(insert_vaddrs[i]);
+                        stub_sizes.push_back(insert_sizes[i]);
+                        stub_bytes_to_move.push_back(insert_bytes_to_move[i]);
+                    }
+                }
+                success = stub_injector->inject_restore_stub(
+                    processed_data, stub_vaddrs, stub_sizes, stub_bytes_to_move, stub_options);
+            }
             break;
         case StubType::CUSTOM:
             if (options.custom_stub_code.empty()) {
