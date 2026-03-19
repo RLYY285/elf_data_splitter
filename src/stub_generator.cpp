@@ -237,6 +237,11 @@ std::vector<uint8_t> StubGenerator::generate_metadata(
     // 在这种情况下，stub 也没有足够信息恢复，仅写入 count=0
     const uint16_t op_count = static_cast<uint16_t>(
         ops.size() <= 0xFFFF ? ops.size() : 0xFFFF);
+    if (ops.size() > 0xFFFF) {
+        log_error("Repair op count exceeds maximum (65535); truncating to 65535. "
+                  "Some insertions will NOT be recovered at runtime.");
+        return {};
+    }
 
     // Magic 'E','L','F','S'
     metadata.push_back(0x45); // 'E'
