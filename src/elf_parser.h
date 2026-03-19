@@ -67,6 +67,7 @@ public:
     uint32_t get_shnum() const { return e_shnum; }
     uint64_t get_entry() const { return e_entry; }
     uint64_t get_phoff() const { return e_phoff; }
+    uint64_t get_shoff() const { return e_shoff; }
     
     // 检查是否为可执行文件 (ET_EXEC)
     bool is_executable() const { return e_type == ET_EXEC; }

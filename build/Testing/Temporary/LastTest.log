@@ -1,0 +1,32 @@
+Start testing: Mar 19 20:15 CST
+----------------------------------------------------------
+1/1 Testing: SplitterTest
+1/1 Test: SplitterTest
+Command: "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/build/test_splitter"
+Directory: /home/dylia/projects/Malconv/modify_tools/elf_data_splitter/build
+"SplitterTest" start time: Mar 19 20:15 CST
+Output:
+----------------------------------------------------------
+Running ELF Splitter tests...
+
+Testing architecture detection...
+  PASSED
+Testing NOP instruction info...
+  PASSED
+Testing offset calculator...
+  PASSED
+Testing segment auto optimization...
+  PASSED
+Testing protected prefix...
+  PASSED
+
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"SplitterTest" end time: Mar 19 20:15 CST
+"SplitterTest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Mar 19 20:15 CST

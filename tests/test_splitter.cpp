@@ -1,6 +1,11 @@
+#include "common.h"
+#include "elf_parser.h"
 #include "elf_splitter.h"
+#include "segment_handler.h"
+#include "offset_calculator.h"
 #include <iostream>
 #include <cassert>
+#include <vector>
 
 void test_architecture_detection() {
     std::cout << "Testing architecture detection...\n";
@@ -47,6 +52,67 @@ void test_offset_calculator() {
     std::cout << "  PASSED\n";
 }
 
+void test_segment_auto_optimization() {
+    std::cout << "Testing segment auto optimization...\n";
+
+    std::vector<uint8_t> data(130);
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<uint8_t>(i & 0xFF);
+    }
+
+    ProcessOptions options{};
+    options.interval = 0;
+    options.insert_size = 0;
+    options.use_nop = false;
+    options.arch = Architecture::X86;
+    options.auto_optimize = true;
+
+    SegmentHandler handler(options);
+    SegmentProcessResult result = handler.process_segment(data, 0, 100, 130, 0);
+
+    assert(result.success);
+    assert(result.original_size == 100);
+    assert(result.inserted_bytes == 30);
+    assert(result.new_size == 130);
+    assert(result.processed_data.size() == 130);
+    assert(result.interval_used > 0);
+    assert(result.insertion_events > 0);
+
+    std::cout << "  PASSED\n";
+}
+
+void test_protected_prefix() {
+    std::cout << "Testing protected prefix...\n";
+
+    std::vector<uint8_t> data(80);
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<uint8_t>((i * 3) & 0xFF);
+    }
+
+    ProcessOptions options{};
+    options.interval = 0;
+    options.insert_size = 0;
+    options.use_nop = false;
+    options.arch = Architecture::X86;
+    options.auto_optimize = true;
+
+    SegmentHandler handler(options);
+    SegmentProcessResult result = handler.process_segment(data, 0, 64, 80, 16);
+
+    assert(result.success);
+    assert(result.new_size == 80);
+    assert(result.inserted_bytes == 16);
+
+    for (size_t i = 0; i < 16; ++i) {
+        assert(result.processed_data[i] == data[i]);
+    }
+    for (uint64_t point : result.insertion_points) {
+        assert(point >= 17);
+    }
+
+    std::cout << "  PASSED\n";
+}
+
 int main() {
     std::cout << "Running ELF Splitter tests...\n\n";
     
@@ -54,6 +120,8 @@ int main() {
         test_architecture_detection();
         test_nop_info();
         test_offset_calculator();
+        test_segment_auto_optimization();
+        test_protected_prefix();
         
         std::cout << "\nAll tests passed!\n";
         return 0;

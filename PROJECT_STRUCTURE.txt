@@ -1,9 +1,14 @@
-elf-data-splitter/
-├── .gitignore
-├── README.md
+elf_data_splitter/
 ├── CMakeLists.txt
+├── README.md
+├── PROJECT_STRUCTURE.txt
+├── create_project.sh
+├── setup_all.sh
+├── p_lx_elf.cpp
+├── include/
+│   └── elf_splitter.h              # 对外 API 头文件（当前以 src/ 实现为主）
 ├── src/
-│   ├── main.cpp
+│   ├── main.cpp                    # CLI 入口（默认自动优化模式）
 │   ├── common.h
 │   ├── common.cpp
 │   ├── elf_parser.h
@@ -14,7 +19,8 @@ elf-data-splitter/
 │   ├── segment_handler.cpp
 │   ├── offset_calculator.h
 │   └── offset_calculator.cpp
-├── include/
-│   └── elf_splitter.h
-└── tests/
-    └── test_splitter.cpp
+├── tests/
+│   └── test_splitter.cpp
+└── build/                          # CMake 构建目录（本地生成）
+    ├── elf-splitter
+    └── test_splitter
