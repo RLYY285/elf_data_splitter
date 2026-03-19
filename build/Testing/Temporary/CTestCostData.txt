@@ -1,2 +1,2 @@
-SplitterTest 12 0.000169526
+SplitterTest 2 0.00100252
 ---

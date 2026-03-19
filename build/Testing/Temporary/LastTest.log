@@ -1,10 +1,10 @@
-Start testing: Mar 19 20:15 CST
+Start testing: Mar 19 13:26 UTC
 ----------------------------------------------------------
 1/1 Testing: SplitterTest
 1/1 Test: SplitterTest
-Command: "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/build/test_splitter"
-Directory: /home/dylia/projects/Malconv/modify_tools/elf_data_splitter/build
-"SplitterTest" start time: Mar 19 20:15 CST
+Command: "/home/runner/work/elf_data_splitter/elf_data_splitter/build/test_splitter"
+Directory: /home/runner/work/elf_data_splitter/elf_data_splitter/build
+"SplitterTest" start time: Mar 19 13:26 UTC
 Output:
 ----------------------------------------------------------
 Running ELF Splitter tests...
@@ -25,8 +25,8 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"SplitterTest" end time: Mar 19 20:15 CST
+"SplitterTest" end time: Mar 19 13:26 UTC
 "SplitterTest" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Mar 19 20:15 CST
+End testing: Mar 19 13:26 UTC
