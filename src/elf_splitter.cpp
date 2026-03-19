@@ -520,8 +520,32 @@ bool ElfSplitter::inject_stub() {
                 stub_options.stub_region_size = best->capacity;
                 stub_options.has_fixed_stub_base = true;
             }
-            success = stub_injector->inject_restore_stub(
-                processed_data, insert_offsets, insert_sizes, stub_options);
+            // apply_restore_repairs_for_executable_segments() 静态修复了可执行段的插入数据；
+            // stub 元数据只需包含非可执行段的插入，避免对已修复区域二次操作。
+            {
+                std::vector<uint64_t> non_exec_offsets;
+                std::vector<uint64_t> non_exec_sizes;
+                const auto& segs = parser.get_segments();
+                for (size_t i = 0; i < insert_offsets.size(); ++i) {
+                    bool in_exec = false;
+                    for (const auto& seg : segs) {
+                        if (!seg.is_load() || !seg.is_executable()) {
+                            continue;
+                        }
+                        if (insert_offsets[i] >= seg.p_offset &&
+                            insert_offsets[i] < seg.p_offset + seg.p_filesz) {
+                            in_exec = true;
+                            break;
+                        }
+                    }
+                    if (!in_exec) {
+                        non_exec_offsets.push_back(insert_offsets[i]);
+                        non_exec_sizes.push_back(insert_sizes[i]);
+                    }
+                }
+                success = stub_injector->inject_restore_stub(
+                    processed_data, non_exec_offsets, non_exec_sizes, stub_options);
+            }
             break;
         case StubType::CUSTOM:
             if (options.custom_stub_code.empty()) {
