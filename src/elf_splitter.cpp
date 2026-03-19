@@ -404,63 +404,44 @@ bool ElfSplitter::apply_restore_repairs_for_executable_segments() {
 
         const uint64_t seg_start = seg.p_offset;
         const uint64_t seg_end = seg.p_offset + seg.p_filesz;
-        const uint64_t expanded_size = seg.p_filesz + segment_size_increase[idx];
 
-        struct Insertion {
-            uint64_t rel_offset;
-            uint64_t size;
-        };
-        std::vector<Insertion> repairs;
-        repairs.reserve(insert_offsets.size());
+        // Find the largest insertion block within this segment.
+        // Insertion bytes are zero-filled and already mapped inside the executable PT_LOAD,
+        // so the stub can safely occupy the start of the largest such block.
+        uint64_t best_offset = 0;
+        uint64_t best_size   = 0;
         for (size_t i = 0; i < insert_offsets.size(); ++i) {
             const uint64_t off = insert_offsets[i];
-            if (off >= seg_start && off < seg_end) {
-                repairs.push_back({off - seg_start, insert_sizes[i]});
+            if (off >= seg_start && off < seg_end && insert_sizes[i] > best_size) {
+                best_size   = insert_sizes[i];
+                best_offset = off;
             }
         }
 
-        if (repairs.empty()) {
-            continue;
-        }
+        // Compute the required stub payload capacity: 12 bytes of trampoline code
+        // plus a 4-byte count header and 16 bytes per recorded insertion.
+        const uint64_t required_capacity =
+            12 + 4 + static_cast<uint64_t>(insert_offsets.size()) * 16;
 
-        std::sort(repairs.begin(), repairs.end(),
-                  [](const Insertion& lhs, const Insertion& rhs) {
-                      return lhs.rel_offset < rhs.rel_offset;
-                  });
-
-        uint64_t current_size = expanded_size;
-        for (const auto& ins : repairs) {
-            if (ins.rel_offset + ins.size > current_size) {
-                last_error = "Restore repair insertion range out of bounds";
-                return false;
-            }
-
-            uint8_t* base = processed_data.data() + seg_start;
-            const uint64_t src_off = ins.rel_offset + ins.size;
-            const uint64_t move_len = current_size - src_off;
-            std::memmove(base + ins.rel_offset, base + src_off, static_cast<size_t>(move_len));
-            current_size -= ins.size;
-        }
-
-        if (seg_start + expanded_size > processed_data.size()) {
-            last_error = "Restore repair exceeds file bounds";
-            return false;
-        }
-
-        uint8_t* base = processed_data.data() + seg_start;
-        std::memset(base + current_size, 0, static_cast<size_t>(expanded_size - current_size));
-        const uint64_t slack_size = expanded_size - current_size;
-        if (slack_size > 0) {
+        // Register stub placement only when the largest insertion can hold the full
+        // stub payload (code + metadata) so the injector won't overflow it.
+        if (best_size >= required_capacity) {
             StubPlacement placement{};
             placement.segment_index = idx;
-            placement.file_offset = seg_start + current_size;
-            placement.vaddr = seg.p_vaddr + current_size;
-            placement.capacity = slack_size;
+            placement.file_offset   = best_offset;
+            placement.vaddr         = seg.p_vaddr + (best_offset - seg_start);
+            placement.capacity      = best_size;
             stub_placements.push_back(placement);
         }
-        log_info("Repaired executable segment " + std::to_string(idx) +
-                 " using restore metadata (" + std::to_string(slack_size) +
-                 " bytes compacted)");
+
+        log_info("Preserved insertions in executable segment " + std::to_string(idx) +
+                 " (" + std::to_string(segment_size_increase[idx]) + " bytes preserved" +
+                 (best_size >= required_capacity
+                      ? ", stub region " + std::to_string(best_size) + " bytes at offset 0x" +
+                            std::to_string(best_offset)
+                      : ", no suitable stub region (need " + std::to_string(required_capacity) +
+                            " bytes, largest insertion " + std::to_string(best_size) + " bytes)") +
+                 ")");
     }
 
     if (!write_entry_point(parser.get_entry())) {
