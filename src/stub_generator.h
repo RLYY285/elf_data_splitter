@@ -2,6 +2,7 @@
 #define __STUB_GENERATOR_H__
 
 #include "common.h"
+#include "elf_parser.h"
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -33,9 +34,10 @@ public:
     
     // 生成恢复 stub（用于恢复插入的数据）
     StubInfo generate_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,  // 插入位置
+        const std::vector<uint64_t>& insert_offsets,  // 插入位置（原始文件坐标）
         const std::vector<uint64_t>& insert_sizes,    // 每次插入大小
-        uint64_t original_entry
+        uint64_t original_entry,
+        const std::vector<SegmentInfo>& segments = {} // 用于生成元数据
     );
     
     // 生成解密 stub
@@ -61,25 +63,18 @@ private:
     const ArchNOPInfo* nop_info;
     
     // 内部生成函数
-    std::vector<uint8_t> generate_x86_64_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
-    );
+    std::vector<uint8_t> generate_x86_64_restore_stub();
     
-    std::vector<uint8_t> generate_arm64_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
-    );
+    std::vector<uint8_t> generate_arm64_restore_stub();
     
-    std::vector<uint8_t> generate_arm_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
-    );
+    std::vector<uint8_t> generate_arm_restore_stub();
     
-    // 生成元数据
+    // 生成元数据（包含 ELFS magic、原始入口、所有修复操作）
     std::vector<uint8_t> generate_metadata(
         const std::vector<uint64_t>& insert_offsets,
-        const std::vector<uint64_t>& insert_sizes
+        const std::vector<uint64_t>& insert_sizes,
+        uint64_t original_entry,
+        const std::vector<SegmentInfo>& segments
     );
 };
 
