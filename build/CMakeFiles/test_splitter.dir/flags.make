@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/home/runner/work/elf_data_splitter/elf_data_splitter/include -I/home/runner/work/elf_data_splitter/elf_data_splitter/src
 
-CXX_FLAGS = -g -std=gnu++17 -Wall -Wextra -Wpedantic -Wno-class-memaccess
+CXX_FLAGS = -g -O0 -g -std=gnu++17 -Wall -Wextra -Wpedantic -Wno-class-memaccess
 

@@ -31,11 +31,20 @@ public:
     StubGenerator(Architecture arch);
     ~StubGenerator();
     
-    // 生成恢复 stub（用于恢复插入的数据）
+    // 生成恢复 stub（旧接口：简单入口跳板，元数据不用于执行）
     StubInfo generate_restore_stub(
-        const std::vector<uint64_t>& insert_offsets,  // 插入位置
+        const std::vector<uint64_t>& insert_offsets,  // 插入位置（文件偏移）
         const std::vector<uint64_t>& insert_sizes,    // 每次插入大小
         uint64_t original_entry
+    );
+
+    // 生成恢复 stub（新接口：在目标进程内存中移除插入数据并跳回原入口）
+    StubInfo generate_restore_stub(
+        const std::vector<uint64_t>& insert_vaddrs,  // 插入虚拟地址（含累计偏移）
+        const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& move_lens,      // 每个插入块之后需移动的字节数
+        uint64_t stub_vaddr,                          // stub 自身的虚拟地址
+        uint64_t original_entry                       // 原始入口虚拟地址
     );
     
     // 生成解密 stub
@@ -65,7 +74,10 @@ private:
         const std::vector<uint64_t>& insert_offsets,
         const std::vector<uint64_t>& insert_sizes
     );
-    
+
+    // 生成完整 x86_64 恢复 stub（含 mprotect+memmove 循环）
+    std::vector<uint8_t> generate_x86_64_restore_stub_v2();
+
     std::vector<uint8_t> generate_arm64_restore_stub(
         const std::vector<uint64_t>& insert_offsets,
         const std::vector<uint64_t>& insert_sizes
@@ -76,10 +88,19 @@ private:
         const std::vector<uint64_t>& insert_sizes
     );
     
-    // 生成元数据
+    // 生成元数据（旧格式）
     std::vector<uint8_t> generate_metadata(
         const std::vector<uint64_t>& insert_offsets,
         const std::vector<uint64_t>& insert_sizes
+    );
+
+    // 生成元数据（新格式：entry_delta, count, per-insertion records）
+    std::vector<uint8_t> generate_metadata_v2(
+        const std::vector<uint64_t>& insert_vaddrs,
+        const std::vector<uint64_t>& insert_sizes,
+        const std::vector<uint64_t>& move_lens,
+        uint64_t stub_vaddr,
+        uint64_t original_entry
     );
 };
 
