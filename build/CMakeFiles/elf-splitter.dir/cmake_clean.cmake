@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/elf-splitter.dir/link.d"
   "CMakeFiles/elf-splitter.dir/src/common.cpp.o"
   "CMakeFiles/elf-splitter.dir/src/common.cpp.o.d"
   "CMakeFiles/elf-splitter.dir/src/elf_parser.cpp.o"

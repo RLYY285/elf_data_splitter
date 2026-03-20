@@ -93,8 +93,9 @@ private:
     std::string last_error;
     
     // 记录插入位置和大小
-    std::vector<uint64_t> insert_offsets;
+    std::vector<uint64_t> insert_offsets;   // 文件偏移 (seg.p_offset + insertion_points[i])
     std::vector<uint64_t> insert_sizes;
+    std::vector<uint64_t> insert_move_lens; // 每个插入块之后需移动的原始字节数
     std::vector<uint64_t> segment_size_increase;
     std::vector<StubPlacement> stub_placements;
     
@@ -112,6 +113,12 @@ private:
     bool update_section_headers(const SegmentInfo& seg, const SegmentProcessResult& result);
     bool apply_restore_repairs_for_executable_segments();
     bool write_entry_point(uint64_t entry);
+    // 找到可以被复用为 PT_LOAD 的程序头槽（PT_NULL / PT_GNU_STACK / PT_NOTE）
+    bool find_expendable_phdr_index(size_t& out_idx) const;
+    // stub 注入辅助：将文件偏移 >= threshold+1 的所有 phdr/shdr/shoff 后移 shift 字节
+    bool shift_all_phdrs_after(uint64_t threshold, uint64_t shift);
+    bool shift_shoff_after(uint64_t threshold, uint64_t shift);
+    bool shift_all_shdrs_after(uint64_t threshold, uint64_t shift);
 };
 
 #endif // __ELF_SPLITTER_H__

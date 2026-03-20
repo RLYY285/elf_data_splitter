@@ -111,6 +111,7 @@ bool ElfSplitter::process() {
     last_error.clear();
     insert_offsets.clear();
     insert_sizes.clear();
+    insert_move_lens.clear();
     stub_placements.clear();
 
     if (options.arch == Architecture::UNKNOWN) {
@@ -271,8 +272,15 @@ bool ElfSplitter::process_pt_load_segments() {
 
         segment_size_increase[idx] = result.inserted_bytes;
         for (size_t i = 0; i < result.insertion_points.size(); ++i) {
-            insert_offsets.push_back(seg.p_offset + result.insertion_points[i]);
+            insert_offsets.push_back(seg.p_vaddr + result.insertion_points[i]);
             insert_sizes.push_back(result.insertion_sizes[i]);
+            uint64_t move_len;
+            if (i + 1 < result.insertion_points.size()) {
+                move_len = result.insertion_points[i + 1] - result.insertion_points[i];
+            } else {
+                move_len = seg.p_filesz - result.insertion_points[i];
+            }
+            insert_move_lens.push_back(move_len);
         }
         
         if (result.inserted_bytes > 0) {
@@ -404,63 +412,44 @@ bool ElfSplitter::apply_restore_repairs_for_executable_segments() {
 
         const uint64_t seg_start = seg.p_offset;
         const uint64_t seg_end = seg.p_offset + seg.p_filesz;
-        const uint64_t expanded_size = seg.p_filesz + segment_size_increase[idx];
 
-        struct Insertion {
-            uint64_t rel_offset;
-            uint64_t size;
-        };
-        std::vector<Insertion> repairs;
-        repairs.reserve(insert_offsets.size());
+        // Find the largest insertion block within this segment.
+        // Insertion bytes are zero-filled and already mapped inside the executable PT_LOAD,
+        // so the stub can safely occupy the start of the largest such block.
+        uint64_t best_offset = 0;
+        uint64_t best_size   = 0;
         for (size_t i = 0; i < insert_offsets.size(); ++i) {
             const uint64_t off = insert_offsets[i];
-            if (off >= seg_start && off < seg_end) {
-                repairs.push_back({off - seg_start, insert_sizes[i]});
+            if (off >= seg_start && off < seg_end && insert_sizes[i] > best_size) {
+                best_size   = insert_sizes[i];
+                best_offset = off;
             }
         }
 
-        if (repairs.empty()) {
-            continue;
-        }
+        // Compute the required stub payload capacity: 12 bytes of trampoline code
+        // plus a 4-byte count header and 16 bytes per recorded insertion.
+        const uint64_t required_capacity =
+            12 + 4 + static_cast<uint64_t>(insert_offsets.size()) * 16;
 
-        std::sort(repairs.begin(), repairs.end(),
-                  [](const Insertion& lhs, const Insertion& rhs) {
-                      return lhs.rel_offset < rhs.rel_offset;
-                  });
-
-        uint64_t current_size = expanded_size;
-        for (const auto& ins : repairs) {
-            if (ins.rel_offset + ins.size > current_size) {
-                last_error = "Restore repair insertion range out of bounds";
-                return false;
-            }
-
-            uint8_t* base = processed_data.data() + seg_start;
-            const uint64_t src_off = ins.rel_offset + ins.size;
-            const uint64_t move_len = current_size - src_off;
-            std::memmove(base + ins.rel_offset, base + src_off, static_cast<size_t>(move_len));
-            current_size -= ins.size;
-        }
-
-        if (seg_start + expanded_size > processed_data.size()) {
-            last_error = "Restore repair exceeds file bounds";
-            return false;
-        }
-
-        uint8_t* base = processed_data.data() + seg_start;
-        std::memset(base + current_size, 0, static_cast<size_t>(expanded_size - current_size));
-        const uint64_t slack_size = expanded_size - current_size;
-        if (slack_size > 0) {
+        // Register stub placement only when the largest insertion can hold the full
+        // stub payload (code + metadata) so the injector won't overflow it.
+        if (best_size >= required_capacity) {
             StubPlacement placement{};
             placement.segment_index = idx;
-            placement.file_offset = seg_start + current_size;
-            placement.vaddr = seg.p_vaddr + current_size;
-            placement.capacity = slack_size;
+            placement.file_offset   = best_offset;
+            placement.vaddr         = seg.p_vaddr + (best_offset - seg_start);
+            placement.capacity      = best_size;
             stub_placements.push_back(placement);
         }
-        log_info("Repaired executable segment " + std::to_string(idx) +
-                 " using restore metadata (" + std::to_string(slack_size) +
-                 " bytes compacted)");
+
+        log_info("Preserved insertions in executable segment " + std::to_string(idx) +
+                 " (" + std::to_string(segment_size_increase[idx]) + " bytes preserved" +
+                 (best_size >= required_capacity
+                      ? ", stub region " + std::to_string(best_size) + " bytes at offset 0x" +
+                            std::to_string(best_offset)
+                      : ", no suitable stub region (need " + std::to_string(required_capacity) +
+                            " bytes, largest insertion " + std::to_string(best_size) + " bytes)") +
+                 ")");
     }
 
     if (!write_entry_point(parser.get_entry())) {
@@ -502,26 +491,144 @@ bool ElfSplitter::inject_stub() {
                 last_error = "stub-update-entry currently supports x86_64 restore only";
                 return false;
             }
-            if (!apply_restore_repairs_for_executable_segments()) {
-                return false;
-            }
             if (options.update_entry_point) {
-                if (stub_placements.empty()) {
-                    last_error = "No executable slack region available for entry stub";
+                // Append restore stub to end of file and remap a spare phdr as a
+                // new executable PT_LOAD so the stub does not overlap any existing
+                // segment regardless of their layout.
+
+                // 1. Stub goes to the current end of the processed file.
+                const uint64_t stub_file_offset =
+                    static_cast<uint64_t>(processed_data.size());
+
+                // 2. Compute a page-aligned virtual address above all existing PT_LOAD
+                //    segments that also satisfies the ELF alignment constraint
+                //    p_vaddr ≡ p_offset  (mod p_align=0x1000).
+                const auto& segments = parser.get_segments();
+                const uint64_t page_align = 0x1000;
+                uint64_t max_vaddr_end = 0;
+                for (const auto& seg : segments) {
+                    if (seg.is_load()) {
+                        const uint64_t vend = seg.p_vaddr + seg.p_memsz;
+                        if (vend > max_vaddr_end) max_vaddr_end = vend;
+                    }
+                }
+                const uint64_t vaddr_base =
+                    (max_vaddr_end + page_align - 1) & ~(page_align - 1);
+                const uint64_t stub_vaddr =
+                    vaddr_base + (stub_file_offset % page_align);
+
+                // 3. insert_offsets already stores virtual addresses
+                //    (seg.p_vaddr + insertion_points[i]) from process_pt_load_segments.
+                //    No further conversion is needed.
+
+                // 4. Generate the restore stub.
+                StubGenerator stub_gen(options.arch);
+                StubInfo stub_info = stub_gen.generate_restore_stub(
+                    insert_offsets, insert_sizes, insert_move_lens,
+                    stub_vaddr, parser.get_entry());
+                if (stub_info.code.empty()) {
+                    last_error = "Failed to generate restore stub";
                     return false;
                 }
-                const auto best = std::max_element(
-                    stub_placements.begin(), stub_placements.end(),
-                    [](const StubPlacement& lhs, const StubPlacement& rhs) {
-                        return lhs.capacity < rhs.capacity;
-                    });
-                stub_options.stub_base_offset = best->file_offset;
-                stub_options.stub_base_vaddr = best->vaddr;
-                stub_options.stub_region_size = best->capacity;
-                stub_options.has_fixed_stub_base = true;
+
+                std::vector<uint8_t> payload = stub_info.code;
+                payload.insert(payload.end(),
+                               stub_info.metadata.begin(), stub_info.metadata.end());
+                const uint64_t stub_size_bytes =
+                    static_cast<uint64_t>(payload.size());
+
+                // 5. Append stub to end of file.
+                processed_data.insert(processed_data.end(),
+                                      payload.begin(), payload.end());
+
+                // 6. Find an expendable program header to repurpose as PT_LOAD.
+                size_t expendable_idx = SIZE_MAX;
+                if (!find_expendable_phdr_index(expendable_idx)) {
+                    last_error =
+                        "No expendable program header slot found for stub PT_LOAD";
+                    return false;
+                }
+
+                // 7. Overwrite the expendable phdr with a new PT_LOAD that covers
+                //    the appended stub.
+                const bool is_le = parser.is_little_endian();
+                if (parser.is_64bit()) {
+                    const uint64_t phoff =
+                        parser.get_phoff() +
+                        expendable_idx * sizeof(Elf64_Phdr);
+                    if (phoff + sizeof(Elf64_Phdr) > processed_data.size()) {
+                        last_error = "Expendable phdr out of bounds";
+                        return false;
+                    }
+                    auto* phdr = reinterpret_cast<Elf64_Phdr*>(
+                        processed_data.data() + phoff);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_type),
+                              PT_LOAD, is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_flags),
+                              PF_R | PF_X, is_le);
+                    write_u64(reinterpret_cast<uint8_t*>(&phdr->p_offset),
+                              stub_file_offset, is_le);
+                    write_u64(reinterpret_cast<uint8_t*>(&phdr->p_vaddr),
+                              stub_vaddr, is_le);
+                    write_u64(reinterpret_cast<uint8_t*>(&phdr->p_paddr),
+                              stub_vaddr, is_le);
+                    write_u64(reinterpret_cast<uint8_t*>(&phdr->p_filesz),
+                              stub_size_bytes, is_le);
+                    write_u64(reinterpret_cast<uint8_t*>(&phdr->p_memsz),
+                              stub_size_bytes, is_le);
+                    write_u64(reinterpret_cast<uint8_t*>(&phdr->p_align),
+                              page_align, is_le);
+                } else {
+                    const uint64_t phoff =
+                        parser.get_phoff() +
+                        expendable_idx * sizeof(Elf32_Phdr);
+                    if (phoff + sizeof(Elf32_Phdr) > processed_data.size()) {
+                        last_error = "Expendable phdr out of bounds";
+                        return false;
+                    }
+                    auto* phdr = reinterpret_cast<Elf32_Phdr*>(
+                        processed_data.data() + phoff);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_type),
+                              PT_LOAD, is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_flags),
+                              PF_R | PF_X, is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_offset),
+                              static_cast<uint32_t>(stub_file_offset), is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_vaddr),
+                              static_cast<uint32_t>(stub_vaddr), is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_paddr),
+                              static_cast<uint32_t>(stub_vaddr), is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_filesz),
+                              static_cast<uint32_t>(stub_size_bytes), is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_memsz),
+                              static_cast<uint32_t>(stub_size_bytes), is_le);
+                    write_u32(reinterpret_cast<uint8_t*>(&phdr->p_align),
+                              static_cast<uint32_t>(page_align), is_le);
+                }
+
+                // 8. Point the ELF entry to the stub.
+                if (!write_entry_point(stub_vaddr)) return false;
+
+                stats.stub_injected   = true;
+                stats.stub_offset     = stub_file_offset;
+                stats.stub_size       = stub_size_bytes;
+                stats.new_entry_point = stub_vaddr;
+                success = true;
+                log_info("Restore stub injected: vaddr=0x" +
+                         std::to_string(stub_vaddr) +
+                         ", file_offset=0x" +
+                         std::to_string(stub_file_offset) +
+                         ", size=" + std::to_string(stub_size_bytes));
+            } else {
+                // Legacy path: write restore stub (simple jmp trampoline) to end of file
+                // via the existing StubInjector.  Entry point is NOT updated.
+                if (!apply_restore_repairs_for_executable_segments()) {
+                    return false;
+                }
+                stub_options.has_fixed_stub_base = false;
+                success = stub_injector->inject_restore_stub(
+                    processed_data, insert_offsets, insert_sizes, stub_options);
             }
-            success = stub_injector->inject_restore_stub(
-                processed_data, insert_offsets, insert_sizes, stub_options);
             break;
         case StubType::CUSTOM:
             if (options.custom_stub_code.empty()) {
@@ -546,10 +653,13 @@ bool ElfSplitter::inject_stub() {
         return false;
     }
 
-    stats.stub_injected = true;
-    stats.stub_offset = stub_injector->get_stub_offset();
-    stats.stub_size = stub_injector->get_stub_size();
-    stats.new_entry_point = stub_injector->get_new_entry_point();
+    // For RESTORE_DATA+update_entry, stats were already set inline above.
+    if (!stats.stub_injected) {
+        stats.stub_injected = true;
+        stats.stub_offset = stub_injector->get_stub_offset();
+        stats.stub_size = stub_injector->get_stub_size();
+        stats.new_entry_point = stub_injector->get_new_entry_point();
+    }
     log_info("Stub injection completed: offset=0x" + std::to_string(stats.stub_offset) +
              ", size=" + std::to_string(stats.stub_size));
     if (options.update_entry_point) {
@@ -784,4 +894,123 @@ bool ElfSplitter::update_section_headers(const SegmentInfo& seg, const SegmentPr
     }
 
     return true;
+}
+
+// Shift p_offset of all program headers (except the exec segment we just grew) whose
+// p_offset > threshold by +shift bytes.  We skip the exec segment's offset field since
+// it didn't move — only the segments that come AFTER the stub insertion point shift.
+bool ElfSplitter::shift_all_phdrs_after(uint64_t threshold, uint64_t shift) {
+    if (shift == 0) return true;
+    const bool is_le = parser.is_little_endian();
+    const size_t phnum = parser.get_phnum();
+
+    if (parser.is_64bit()) {
+        for (size_t i = 0; i < phnum; ++i) {
+            const uint64_t off = parser.get_phoff() + i * sizeof(Elf64_Phdr);
+            if (off + sizeof(Elf64_Phdr) > processed_data.size()) continue;
+            auto* phdr = reinterpret_cast<Elf64_Phdr*>(processed_data.data() + off);
+            const uint64_t p_off = read_u64(
+                reinterpret_cast<const uint8_t*>(&phdr->p_offset), is_le);
+            if (p_off > threshold) {
+                write_u64(reinterpret_cast<uint8_t*>(&phdr->p_offset), p_off + shift, is_le);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < phnum; ++i) {
+            const uint64_t off = parser.get_phoff() + i * sizeof(Elf32_Phdr);
+            if (off + sizeof(Elf32_Phdr) > processed_data.size()) continue;
+            auto* phdr = reinterpret_cast<Elf32_Phdr*>(processed_data.data() + off);
+            const uint32_t p_off = read_u32(
+                reinterpret_cast<const uint8_t*>(&phdr->p_offset), is_le);
+            if (p_off > threshold) {
+                write_u32(reinterpret_cast<uint8_t*>(&phdr->p_offset),
+                          static_cast<uint32_t>(p_off + shift), is_le);
+            }
+        }
+    }
+    return true;
+}
+
+bool ElfSplitter::shift_shoff_after(uint64_t threshold, uint64_t shift) {
+    if (shift == 0 || parser.get_shoff() == 0) return true;
+    if (parser.get_shoff() <= threshold) return true;
+    const bool is_le = parser.is_little_endian();
+    const uint64_t new_shoff = parser.get_shoff() + shift;
+    if (parser.is_64bit()) {
+        if (processed_data.size() < sizeof(Elf64_Ehdr)) return false;
+        auto* ehdr = reinterpret_cast<Elf64_Ehdr*>(processed_data.data());
+        write_u64(reinterpret_cast<uint8_t*>(&ehdr->e_shoff), new_shoff, is_le);
+    } else {
+        if (new_shoff > std::numeric_limits<uint32_t>::max()) return false;
+        if (processed_data.size() < sizeof(Elf32_Ehdr)) return false;
+        auto* ehdr = reinterpret_cast<Elf32_Ehdr*>(processed_data.data());
+        write_u32(reinterpret_cast<uint8_t*>(&ehdr->e_shoff),
+                  static_cast<uint32_t>(new_shoff), is_le);
+    }
+    return true;
+}
+
+bool ElfSplitter::shift_all_shdrs_after(uint64_t threshold, uint64_t shift) {
+    if (shift == 0 || parser.get_shoff() == 0 || parser.get_shnum() == 0) return true;
+    const bool is_le = parser.is_little_endian();
+    const auto& sections = parser.get_sections();
+
+    if (parser.is_64bit()) {
+        for (size_t i = 0; i < sections.size(); ++i) {
+            const uint64_t shoff_i = parser.get_shoff() + i * sizeof(Elf64_Shdr);
+            if (shoff_i + sizeof(Elf64_Shdr) > processed_data.size()) continue;
+            const uint64_t sec_off = sections[i].sh_offset;
+            if (sec_off > threshold && sections[i].sh_type != SHT_NULL) {
+                auto* shdr = reinterpret_cast<Elf64_Shdr*>(processed_data.data() + shoff_i);
+                write_u64(reinterpret_cast<uint8_t*>(&shdr->sh_offset),
+                          sec_off + shift, is_le);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < sections.size(); ++i) {
+            const uint64_t shoff_i = parser.get_shoff() + i * sizeof(Elf32_Shdr);
+            if (shoff_i + sizeof(Elf32_Shdr) > processed_data.size()) continue;
+            const uint64_t sec_off = sections[i].sh_offset;
+            if (sec_off > threshold && sections[i].sh_type != SHT_NULL) {
+                if (sec_off + shift > std::numeric_limits<uint32_t>::max()) continue;
+                auto* shdr = reinterpret_cast<Elf32_Shdr*>(processed_data.data() + shoff_i);
+                write_u32(reinterpret_cast<uint8_t*>(&shdr->sh_offset),
+                          static_cast<uint32_t>(sec_off + shift), is_le);
+            }
+        }
+    }
+    return true;
+}
+
+// Find a program header that can safely be repurposed as a new PT_LOAD entry.
+// Priority: PT_NULL > PT_GNU_STACK > PT_NOTE.
+bool ElfSplitter::find_expendable_phdr_index(size_t& out_idx) const {
+    const auto& segments = parser.get_segments();
+    const size_t phnum   = parser.get_phnum();
+
+    // Pass 1 – prefer PT_NULL (already unused).
+    for (size_t i = 0; i < phnum; ++i) {
+        if (segments[i].p_type == PT_NULL) {
+            out_idx = i;
+            return true;
+        }
+    }
+
+    // Pass 2 – PT_GNU_STACK: only controls stack-exec marking, safe for static bins.
+    for (size_t i = 0; i < phnum; ++i) {
+        if (segments[i].p_type == PT_GNU_STACK) {
+            out_idx = i;
+            return true;
+        }
+    }
+
+    // Pass 3 – PT_NOTE: build-id / ABI tags, not needed at runtime.
+    for (size_t i = 0; i < phnum; ++i) {
+        if (segments[i].p_type == PT_NOTE) {
+            out_idx = i;
+            return true;
+        }
+    }
+
+    return false;
 }
