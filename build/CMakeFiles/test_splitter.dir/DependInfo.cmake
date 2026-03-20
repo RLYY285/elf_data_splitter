@@ -8,18 +8,23 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/common.cpp" "CMakeFiles/test_splitter.dir/src/common.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/common.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/elf_parser.cpp" "CMakeFiles/test_splitter.dir/src/elf_parser.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/elf_parser.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/elf_splitter.cpp" "CMakeFiles/test_splitter.dir/src/elf_splitter.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/elf_splitter.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/offset_calculator.cpp" "CMakeFiles/test_splitter.dir/src/offset_calculator.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/offset_calculator.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/segment_handler.cpp" "CMakeFiles/test_splitter.dir/src/segment_handler.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/segment_handler.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/stub_generator.cpp" "CMakeFiles/test_splitter.dir/src/stub_generator.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/stub_generator.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/src/stub_injector.cpp" "CMakeFiles/test_splitter.dir/src/stub_injector.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/stub_injector.cpp.o.d"
-  "/home/dylia/projects/Malconv/modify_tools/elf_data_splitter/tests/test_splitter.cpp" "CMakeFiles/test_splitter.dir/tests/test_splitter.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/tests/test_splitter.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/common.cpp" "CMakeFiles/test_splitter.dir/src/common.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/common.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/elf_parser.cpp" "CMakeFiles/test_splitter.dir/src/elf_parser.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/elf_parser.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/elf_splitter.cpp" "CMakeFiles/test_splitter.dir/src/elf_splitter.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/elf_splitter.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/offset_calculator.cpp" "CMakeFiles/test_splitter.dir/src/offset_calculator.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/offset_calculator.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/segment_handler.cpp" "CMakeFiles/test_splitter.dir/src/segment_handler.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/segment_handler.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/stub_generator.cpp" "CMakeFiles/test_splitter.dir/src/stub_generator.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/stub_generator.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/src/stub_injector.cpp" "CMakeFiles/test_splitter.dir/src/stub_injector.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/src/stub_injector.cpp.o.d"
+  "/home/runner/work/elf_data_splitter/elf_data_splitter/tests/test_splitter.cpp" "CMakeFiles/test_splitter.dir/tests/test_splitter.cpp.o" "gcc" "CMakeFiles/test_splitter.dir/tests/test_splitter.cpp.o.d"
+  "" "test_splitter" "gcc" "CMakeFiles/test_splitter.dir/link.d"
   )
 
-# Targets to which this target links.
-set(CMAKE_TARGET_LINKED_INFO_FILES
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_LINKED_INFO_FILES
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_FORWARD_LINKED_INFO_FILES
   )
 
 # Fortran module output directory.
